@@ -64,7 +64,7 @@ dependencies {
 }
 
 group = 'io.github.fvarrui'
-version = '1.7.5'
+version = '1.7.5-fix'
 description = 'Hybrid Maven/Gradle plugin to package Java applications as native Windows, Mac OS X or GNU/Linux executables and create installers for them'
 
 sourceCompatibility = JavaVersion.VERSION_1_8
@@ -150,6 +150,13 @@ publishing {
 			}
 		}
 	}
+}
+
+tasks.withType(Javadoc).configureEach {
+	failOnError false
+	options.addStringOption('Xdoclint:none', '-quiet')
+	options.addStringOption('encoding', 'UTF-8')
+	options.addStringOption('charSet', 'UTF-8')
 }
 
 // runs the plugin description generator
