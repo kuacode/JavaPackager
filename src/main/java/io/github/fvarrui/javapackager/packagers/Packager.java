@@ -1,8 +1,8 @@
 package io.github.fvarrui.javapackager.packagers;
 
-import static org.apache.commons.lang3.StringUtils.defaultIfBlank;
-import static org.apache.commons.io.FilenameUtils.getExtension;
 import static org.apache.commons.collections4.CollectionUtils.addIgnoreNull;
+import static org.apache.commons.io.FilenameUtils.getExtension;
+import static org.apache.commons.lang3.StringUtils.defaultIfBlank;
 
 import java.io.File;
 import java.nio.file.InvalidPathException;
@@ -21,11 +21,11 @@ import io.github.fvarrui.javapackager.utils.VelocityUtils;
  */
 public abstract class Packager extends PackagerSettings {
 
-	private static final String DEFAULT_ORGANIZATION_NAME = "ACME";
+	public static final String DEFAULT_ORGANIZATION_NAME = "ACME";
 
 	// artifact generators
 	protected List<ArtifactGenerator<?>> installerGenerators = new ArrayList<>();
-	private BundleJre generateJre = new BundleJre();
+	private final BundleJre generateJre = new BundleJre();
 
 	// internal generic properties (setted in "createAppStructure/createApp")
 	protected File appFolder;
@@ -140,12 +140,6 @@ public abstract class Packager extends PackagerSettings {
 			throw new Exception("Invalid name specified: " + name, e);
 		}
 
-		// init setup languages
-		if (platform.equals(Platform.windows) && (winConfig.getSetupLanguages() == null || winConfig.getSetupLanguages().isEmpty())) {
-			winConfig.getSetupLanguages().put("english", "compiler:Default.isl");
-			winConfig.getSetupLanguages().put("spanish", "compiler:Languages\\Spanish.isl");
-		}
-
 		doInit();
 
 		// removes not necessary platform specific configs
@@ -163,6 +157,7 @@ public abstract class Packager extends PackagerSettings {
 			macConfig = null;
 			break;
 		default:
+			// do nothing
 		}
 
 		Logger.info("" + this); // prints packager settings
@@ -400,13 +395,15 @@ public abstract class Packager extends PackagerSettings {
 		Logger.infoUnindent("Dependencies copied to " + libsFolder + "!");
 
 		// creates a runnable jar file
-		if (runnableJar != null && runnableJar.exists()) {
-			Logger.info("Using runnable JAR: " + runnableJar);
-			jarFile = runnableJar;
-		} else {
+		if (runnableJar == null) {
 			Logger.infoIndent("Creating runnable JAR...");
 			jarFile = Context.getContext().createRunnableJar(this);
 			Logger.infoUnindent("Runnable jar created in " + jarFile + "!");
+		} else if (runnableJar.exists()) {
+			Logger.info("Using runnable JAR: " + runnableJar);
+			jarFile = runnableJar;
+		} else {
+			throw new Exception("Runnable JAR doesn't exist: " + runnableJar);
 		}
 
 		// embeds a JRE if is required

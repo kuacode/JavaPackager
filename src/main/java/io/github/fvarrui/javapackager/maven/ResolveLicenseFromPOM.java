@@ -1,8 +1,9 @@
 package io.github.fvarrui.javapackager.maven;
 
 import java.io.File;
-import java.io.IOException;
 import java.net.MalformedURLException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.util.List;
 
@@ -36,13 +37,13 @@ public class ResolveLicenseFromPOM extends ArtifactGenerator<Packager> {
 			String urlStr = null; 
 			try {
 				urlStr = licenses.get(0).getUrl(); 
-				URL licenseUrl = new URL(urlStr);
+				URL licenseUrl = new URI(urlStr).toURL();
 				licenseFile = new File(assetsFolder, "LICENSE");
 				FileUtils.downloadFromUrl(licenseUrl, licenseFile);
-			} catch (MalformedURLException e) {
+			} catch (URISyntaxException | MalformedURLException e) {
 				Logger.error("Invalid license URL specified: " + urlStr);
 				licenseFile = null;
-			} catch (IOException e) {
+			} catch (Exception e) {
 				Logger.error("Cannot download license from " + urlStr);
 				licenseFile = null;
 			}

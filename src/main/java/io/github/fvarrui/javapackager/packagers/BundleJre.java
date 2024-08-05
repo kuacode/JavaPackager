@@ -4,22 +4,27 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.SystemUtils;
 
 import io.github.fvarrui.javapackager.model.Platform;
-import io.github.fvarrui.javapackager.utils.CommandUtils;
 import io.github.fvarrui.javapackager.utils.FileUtils;
 import io.github.fvarrui.javapackager.utils.JDKUtils;
 import io.github.fvarrui.javapackager.utils.Logger;
 import io.github.fvarrui.javapackager.utils.VersionUtils;
 
+import static io.github.fvarrui.javapackager.utils.CommandUtils.execute;
+
+
 /**
- * Bundles a Java Runtime Enrironment (JRE) with the app
+ * Bundles a Java Runtime Environment (JRE) with the app
  */
 public class BundleJre extends ArtifactGenerator<Packager> {
+	
+	private static final String ALL_MODULES = "ALL-MODULE-PATH";
 	
 	public BundleJre() {
 		super("JRE");
@@ -56,22 +61,31 @@ public class BundleJre extends ArtifactGenerator<Packager> {
 				throw new Exception("'" + specificJreFolder + "' is not a directory!");
 			}
 
-			// checks if the specified jre is valid (it looks for 'release' file into it, and if so, checks if it matches the right platform 
+			// checks if the specified jre is valid (it looks for 'release' file into it, and if so, checks if it matches the right platform
+			boolean validJre = true;
 			if (!JDKUtils.isValidJRE(platform, specificJreFolder)) {
 
-				Logger.warn("An invalid JRE may have been specified for '" + platform + "' platform: " + specificJreFolder + " ('release' file not found)");
-
-				// try to fix the path to the JRE on MacOS adding Contents/Home to JRE path
+				// if platform is mac
 				if (platform.equals(Platform.mac)) {
 					
+					// try to fix the path to the JRE on MacOS adding Contents/Home to JRE path
 					File fixedJreFolder = new File(specificJreFolder, "Contents/Home");
 					if (JDKUtils.isValidJRE(platform, fixedJreFolder)) {
 						specificJreFolder = fixedJreFolder;
-						Logger.warn("Specified 'jrePath' fixed: " + specificJreFolder);
+						Logger.warn("Specified 'jrePath' fixed: " + specificJreFolder);						
+					} else {
+						validJre = false;
 					}
 				
+				} else {
+					validJre = false;
 				}
 				
+			}
+			if (!validJre) {
+				Logger.warn("An invalid JRE may have been specified for '" + platform + "' platform: " + specificJreFolder);
+			} else if (JDKUtils.isJDK(specificJreFolder)) {
+				Logger.warn("Wow! Embedding a JDK instead of a JRE ... are you sure you want to do that?");
 			}
 
 			// removes old jre folder from bundle
@@ -122,20 +136,29 @@ public class BundleJre extends ArtifactGenerator<Packager> {
 			Logger.info("Using " + modulesDir + " modules directory");
 	
 			if (destinationFolder.exists()) FileUtils.removeFolder(destinationFolder);
+			
+			// gets JDK release info 
+			Map<String,String> releaseMap = JDKUtils.getRelease(jdkPath);
+			String releaseInfo = "add:IMAGE_TYPE=\"JRE\":OS_ARCH=\"" + releaseMap.get("OS_ARCH") + "\":OS_NAME=\"" + releaseMap.get("OS_NAME") + "\"";
 
+			// full path to jlink command
 			File jlink = new File(currentJdk, "/bin/jlink");
 			
+			List<File> modulePaths = new ArrayList<File>();
+			modulePaths.add(modulesDir);
+			modulePaths.addAll(additionalModulePaths);
+			
 			// generates customized jre using modules
-			CommandUtils.execute(
+			execute(
 					jlink, 
-					"--module-path", modulesDir, 
-					additionalModulePathsToParams(additionalModulePaths),
+					"--module-path=" + StringUtils.join(modulePaths, File.pathSeparator), 
 					"--add-modules", modules, 
 					"--output", destinationFolder, 
 					"--no-header-files", 
 					"--no-man-pages", 
-					"--strip-debug", 
-					"--compress=2"
+					"--strip-debug",
+					"--release-info", releaseInfo, 
+					(VersionUtils.getJavaMajorVersion() < 21 ? "--compress=2" : null)
 				);
 	
 			// sets execution permissions on executables in jre
@@ -163,7 +186,7 @@ public class BundleJre extends ArtifactGenerator<Packager> {
 		}
 		
 		// updates bundle jre property value, as this artifact generator could disable this option 
-		// (e.g. when bundling a jre from a different platform than the current one)
+		// (e.g., when bundling a jre from a different platform than the current one)
 		packager.bundleJre(bundleJre);
 
 		return destinationFolder;
@@ -186,16 +209,15 @@ public class BundleJre extends ArtifactGenerator<Packager> {
 		Logger.infoIndent("Getting required modules ... ");
 		
 		File jdeps = new File(packagingJdk, "/bin/jdeps");
-
-		File jarLibs = null;
-		if (libsFolder != null && libsFolder.exists()) 
-			jarLibs = new File(libsFolder, "*.jar");
-		else
-			Logger.warn("No dependencies found!");
 		
+		List<File> modulePaths = getModulePaths(jarFile, libsFolder, additionalModulePaths);
 		List<String> modulesList;
 		
-		if (customizedJre && defaultModules != null && !defaultModules.isEmpty()) {
+		if (!customizedJre) {
+			
+			return ALL_MODULES;
+			
+		} else if (defaultModules != null && !defaultModules.isEmpty()) {
 			
 			modulesList = 
 				defaultModules
@@ -203,18 +225,17 @@ public class BundleJre extends ArtifactGenerator<Packager> {
 					.map(module -> module.trim())
 					.collect(Collectors.toList());
 		
-		} else if (customizedJre && VersionUtils.getJavaMajorVersion() >= 13) { 
+		} else if (VersionUtils.getJavaMajorVersion() >= 13) { 
 			
 			String modules = 
-				CommandUtils.execute(
-					jdeps.getAbsolutePath(), 
+				execute(
+					jdeps, 
 					"-q",
 					"--multi-release", VersionUtils.getJavaMajorVersion(),
 					"--ignore-missing-deps",
 					"--print-module-deps",
-					additionalModulePathsToParams(additionalModulePaths),
-					jarLibs,
-					jarFile
+					"--add-modules=ALL-MODULE-PATH",
+					"--module-path=" + StringUtils.join(modulePaths, File.pathSeparator)				
 				);
 			
 			modulesList = 
@@ -224,18 +245,17 @@ public class BundleJre extends ArtifactGenerator<Packager> {
 					.filter(module -> !module.isEmpty())
 					.collect(Collectors.toList());
 			
-		} else if (customizedJre && VersionUtils.getJavaMajorVersion() >= 9) { 
+		} else if (VersionUtils.getJavaMajorVersion() >= 9) { 
 		
 			String modules = 
-				CommandUtils.execute(
+				execute(
 					jdeps.getAbsolutePath(), 
 					"-q",
 					"--multi-release", VersionUtils.getJavaMajorVersion(),
 					"--ignore-missing-deps",					
 					"--list-deps",
-					additionalModulePathsToParams(additionalModulePaths),
-					jarLibs,
-					jarFile
+					"--add-modules=ALL-MODULE-PATH",
+					"--module-path=" + StringUtils.join(modulePaths, File.pathSeparator)				
 				);
 
 			modulesList = 
@@ -256,7 +276,7 @@ public class BundleJre extends ArtifactGenerator<Packager> {
 		
 		if (modulesList.isEmpty()) {
 			Logger.warn("It was not possible to determine the necessary modules. All modules will be included");
-			modulesList.add("ALL-MODULE-PATH");
+			modulesList.add(ALL_MODULES);
 		} else {
 			modulesList.addAll(additionalModules);			
 		}
@@ -266,23 +286,21 @@ public class BundleJre extends ArtifactGenerator<Packager> {
 		return StringUtils.join(modulesList, ",");
 	}
 	
-	private String [] additionalModulePathsToParams(List<File> additionalModulePaths) {
-		
-		List<String> additionalPaths = new ArrayList<>();
-		
-		additionalModulePaths
-			.stream()
-			.filter(path -> {
-				if (path.exists()) return true;
-				Logger.warn("Additional module path not found: " + path);
-				return false;
-			})
-			.forEach(path -> {
-				additionalPaths.add("--module-path");
-				additionalPaths.add(path.toString());
-			});
-		
-		return additionalPaths.toArray(new String[0]);
+	private List<File> getModulePaths(File jarFile, File libsFolder, List<File> additionalModulePaths) {
+		List<File> modulePaths = new ArrayList<>();
+		modulePaths.add(jarFile);
+		modulePaths.add(libsFolder);
+		modulePaths.addAll(
+				additionalModulePaths
+					.stream()
+					.filter(path -> {
+						if (path.exists()) return true;
+						Logger.warn("Additional module path not found: " + path);
+						return false;
+					})
+					.collect(Collectors.toList())
+			);
+		return modulePaths;
 	}
 
 }

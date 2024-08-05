@@ -9,10 +9,10 @@ import io.github.fvarrui.javapackager.utils.VelocityUtils;
 import io.github.fvarrui.javapackager.utils.XMLUtils;
 
 /**
- * Creates a MSI file including all app folder's content only for Windows so app
+ * Creates an MSI file including all app folder's content only for Windows so app
  * could be easily distributed
  */
-public class GenerateMsm extends WindowsArtifactGenerator {
+public class GenerateMsm extends ArtifactGenerator<WindowsPackager> {
 
 	public GenerateMsm() {
 		super("MSI merge module");
@@ -50,7 +50,7 @@ public class GenerateMsm extends WindowsArtifactGenerator {
 		VelocityUtils.render("windows/msm.wxs.vtl", wxsFile, packager);
 		Logger.info("WXS file generated in " + wxsFile + "!");
 
-		// pretiffy wxs
+		// prettify wxs
 		XMLUtils.prettify(wxsFile);
 
 		// candle wxs file
@@ -62,7 +62,7 @@ public class GenerateMsm extends WindowsArtifactGenerator {
 		// lighting wxs file
 		Logger.info("Linking file " + wixobjFile);
 		File msmFile = new File(outputDirectory, name + "_" + version + ".msm");
-		CommandUtils.execute("light", "-spdb", "-out", msmFile, wixobjFile);
+		CommandUtils.execute("light", "-sw1076", "-spdb", "-out", msmFile, wixobjFile);
 
 		// setup file
 		if (!msmFile.exists()) {

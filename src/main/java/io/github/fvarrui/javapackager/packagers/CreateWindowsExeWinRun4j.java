@@ -1,19 +1,19 @@
 package io.github.fvarrui.javapackager.packagers;
 
 import java.io.File;
-import java.io.FileOutputStream;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Optional;
-import java.util.Properties;
 
+import net.jsign.WindowsSigner;
 import org.apache.commons.lang3.StringUtils;
 
+import io.github.fvarrui.javapackager.model.Arch;
 import io.github.fvarrui.javapackager.model.Platform;
 import io.github.fvarrui.javapackager.model.WindowsConfig;
 import io.github.fvarrui.javapackager.model.WindowsExeCreationTool;
 import io.github.fvarrui.javapackager.utils.FileUtils;
-import io.github.fvarrui.javapackager.utils.JarUtils;
+import io.github.fvarrui.javapackager.utils.JDKUtils;
 import io.github.fvarrui.javapackager.utils.Logger;
 import io.github.fvarrui.javapackager.utils.RcEdit;
 import io.github.fvarrui.javapackager.utils.VelocityUtils;
@@ -51,13 +51,12 @@ public class CreateWindowsExeWinRun4j extends AbstractCreateWindowsExe {
 		File jarFile = packager.getJarFile();
 		File manifestFile = packager.getManifestFile();
 		File iconFile = packager.getIconFile();
-		File libsFolder = packager.getLibsFolder();
 		File appFolder = packager.getAppFolder();
-		String mainClass = packager.getMainClass();
 		File jreDestinationFolder = packager.getJreDestinationFolder();
 		boolean bundleJre = packager.getBundleJre();
 		String vmLocation = packager.getWinConfig().getVmLocation();
-		WindowsConfig winConfig = packager.getWinConfig(); 
+		WindowsConfig winConfig = packager.getWinConfig();
+		Arch arch = packager.getArch();
 		
 		if (winConfig.isWrapJar()) {
 			Logger.warn("'wrapJar' property ignored when building EXE with " + getArtifactName());
@@ -71,8 +70,17 @@ public class CreateWindowsExeWinRun4j extends AbstractCreateWindowsExe {
 		// creates generic manifest
 		FileUtils.copyFileToFile(iconFile, getGenericIcon());
 
+		// checks if target architecture matches JRE arch
+		if (bundleJre && !JDKUtils.isValidJRE(Platform.windows, arch, packager.getJreDestinationFolder())) {
+			throw new Exception("Bundled JRE must match " + Platform.windows + " " + arch);
+		}
+
 		// creates generic exe
-		FileUtils.copyResourceToFile("/windows/WinRun4J64.exe", getGenericExe());
+		if (arch == Arch.x86) {
+			FileUtils.copyResourceToFile("/windows/WinRun4J.exe", getGenericExe());
+		} else {
+			FileUtils.copyResourceToFile("/windows/WinRun4J64.exe", getGenericExe());
+		}
 
 		// uses vmLocation only if a JRE is bundled
 		if (bundleJre) {
@@ -89,7 +97,7 @@ public class CreateWindowsExeWinRun4j extends AbstractCreateWindowsExe {
 	
 			} else {
 				
-				// searchs for   valid jvm.dll file in JRE 
+				// searchs for a valid jvm.dll file in JRE 
 				Optional<File> jvmDllFile = Arrays.asList(JVM_DLL_PATHS)
 					.stream()
 					.map(path -> new File(jreDestinationFolder, path))
@@ -115,11 +123,6 @@ public class CreateWindowsExeWinRun4j extends AbstractCreateWindowsExe {
 			
 		}
 
-		// generates ini file		
-		File genericIni = new File(getOutputFolder(), "app.ini");
-		VelocityUtils.render("windows/ini.vtl", genericIni, packager);
-		Logger.info("INI file generated in " + genericIni.getAbsolutePath() + "!");
-
 		// set exe metadata with rcedit
 		RcEdit rcedit = new RcEdit(getOutputFolder());
 		rcedit.setIcon(getGenericExe(), getGenericIcon());
@@ -135,25 +138,14 @@ public class CreateWindowsExeWinRun4j extends AbstractCreateWindowsExe {
 		// copies JAR to libs folder
 		FileUtils.copyFileToFolder(jarFile, appFolder);
 
-		// copies winrun4j launcher helper library (needed to work around
-		File winrun4jJar = new File(libsFolder, "winrun4j-launcher.jar");
-		FileUtils.copyResourceToFile("/windows/winrun4j-launcher.jar", winrun4jJar);
-
-		// generates winrun4j properties pointing to main class
-		File propertiesFile = new File(getOutputFolder(), "winrun4j.properties");
-		Properties properties = new Properties();
-		properties.setProperty("main.class", mainClass);
-		properties.store(new FileOutputStream(propertiesFile), "WinRun4J Helper Launcher Properties");
-
-		// copies winrun4j properties to launcher jar
-		JarUtils.addFileToJar(winrun4jJar, propertiesFile);
-
+		// generates ini file		
+		File genericIni = new File(getOutputFolder(), "app.ini");
+		VelocityUtils.render("windows/ini.vtl", genericIni, packager);
+		Logger.info("INI file generated in " + genericIni.getAbsolutePath() + "!");
+		
 		// copies ini file to app folder
 		File iniFile = new File(appFolder, name + ".ini");
 		FileUtils.copyFileToFile(genericIni, iniFile);
-
-		// signs generated exe file
-		sign(getGenericExe(), packager);
 
 		// copies exe file to app folder with apps name
 		FileUtils.copyFileToFile(getGenericExe(), executable);

@@ -14,6 +14,10 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -303,7 +307,9 @@ public class FileUtils {
 	 */
 	public static File findFirstFile(File searchFolder, String regex) {
 		return Arrays.asList(searchFolder.listFiles((dir, name) -> Pattern.matches(regex, name))).stream()
-				.map(f -> new File(f.getName())).findFirst().get();
+				.map(f -> new File(f.getName()))
+				.findFirst()
+				.orElse(null);
 	}
 
 	/**
@@ -313,8 +319,9 @@ public class FileUtils {
 	 * @param file File to copy the downloaded resource
 	 * @throws IOException Resource cannot be copied/downloaded
 	 */
-	public static void downloadFromUrl(URL url, File file) throws IOException {
-		org.apache.commons.io.FileUtils.copyURLToFile(url, file);
+	public static void downloadFromUrl(URL url, File file) throws Exception {
+//		org.apache.commons.io.FileUtils.copyURLToFile(url, file);
+		copyUrlToFile(url,file);
 		Logger.info("File downloaded from [" + url + "] to [" + file.getAbsolutePath() + "]");
 	}
 
@@ -323,10 +330,13 @@ public class FileUtils {
 	 * 
 	 * @param url  URL to download
 	 * @param file File to copy the downloaded resource
+	 * @throws Exception 
+	 * @throws MalformedURLException 
 	 * @throws IOException Resource cannot be copied/downloaded
+	 * @throws URISyntaxException 
 	 */
-	public static void downloadFromUrl(String url, File file) throws IOException {
-		downloadFromUrl(new URL(url), file);
+	public static void downloadFromUrl(String url, File file) throws MalformedURLException, URISyntaxException, Exception {
+		downloadFromUrl(new URI(url).toURL(), file);
 	}
 
 	/**
@@ -364,6 +374,38 @@ public class FileUtils {
 		fileOutputStream.write(uft8bom);
 		fileOutputStream.write(data.getBytes(StandardCharsets.UTF_8));
 		fileOutputStream.close();
+	}
+
+	/**
+	 *
+	 * @param url URL to download
+	 * @param file File to copy the downloaded resource
+	 * @throws Exception if something goes wrong
+	 */
+	public static void copyUrlToFile(URL url,File file) throws Exception {
+		copyUrlToFile(url,file,30000);
+	}
+
+	/**
+	 *
+	 * @param url URL to download
+	 * @param file File to copy the downloaded resource
+	 * @param timeout Download timeout (ms)
+	 * @throws Exception if something goes wrong
+	 */
+	public static void copyUrlToFile(URL url,File file,int timeout) throws Exception {
+		HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+		connection.setConnectTimeout(timeout);
+		connection.setReadTimeout(timeout);
+		if (connection.getResponseCode() == HttpURLConnection.HTTP_OK) {
+			try (InputStream in = connection.getInputStream();
+				 FileOutputStream out = new FileOutputStream(file)) {
+				IOUtils.copy(in, out);
+			}
+		} else {
+			Logger.warn("Failed to download the file. Response code: " + connection.getResponseCode());
+		}
+		connection.disconnect();
 	}
 
 }
